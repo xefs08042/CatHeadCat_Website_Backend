@@ -1,8 +1,11 @@
+import app
 from app import pgsql_data_KG, pgSQL_conn_has_return, address_judge, address_format, pgSQL_conn_no_return
 from itertools import groupby
 import matplotlib.pyplot as plt
 import numpy as np
 import math
+import pandas as pd
+import time, datetime
 
 
 # 测试列表直接转字符串
@@ -122,6 +125,74 @@ def location_correction():
             pgSQL_conn_no_return(pgsql_data_KG, sql_update)
 
 
+def test():
+    sql_num = "select time_info, to_timestamp(time_info, 'YYYY-MM-DD HH24:MI:SS') from mblogs_data limit 5"
+    data = pgSQL_conn_has_return(pgsql_data_KG, sql_num)
+    time_list = list(map(lambda x: datetime.datetime.strptime(x[0], "%Y-%m-%d %H:%M:%S"), data))
+    print(time_list)
+    time = time_list[0].replace(hour=0, minute=0, second=0)
+    print(time)
+    delta = datetime.timedelta(days=1, hours=1)
+    print(time + delta)
+    new_time = datetime.datetime.strptime('2023-09-08', '%Y-%m-%d')
+    [start, end] = [(new_time + datetime.timedelta(hours=-1)).strftime("%Y-%m-%d %H:%M:%S")
+        , (new_time + datetime.timedelta(days=1, hours=1)).strftime("%Y-%m-%d %H:%M:%S")]
+    print([start, end])
+
+
+def time_calc_test():
+    sql = 'select mid from mblogs_data order by random() limit 5000'
+    data = pgSQL_conn_has_return(pgsql_data_KG, sql)
+    mids = list(map(lambda x: x[0], data))
+    mids = str(tuple(mids))
+    app.time_judge('2023-07-28', mids, 1500, 0.2)
+
+
+def get_KG_json():
+    mblog_keys = ['mid', 'mblog_id', 'user_id', 'user_nickname', 'time_info', 'location_info', 'mblog_text',
+                  'mblog_reposts_count', 'mblog_comments_count', 'mblog_attitudes_count', 'mblog_weight',
+                  'location_correction']
+    user_keys = ['user_id', 'user_nickname', 'user_gender', 'user_location', 'user_verified_type',
+                 'user_followers_count', 'user_friends_count', 'user_statuses_count', 'user_weight']
+    sql = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id ' \
+          "and mblogs_data.location_correction != '' limit 500"
+    data = pgSQL_conn_has_return(pgsql_data_KG, sql)
+
+    def func(item):
+        mblog_values = item[: len(mblog_keys)]
+        user_values = item[len(mblog_keys):]
+
+        mblog_data = dict(zip(mblog_keys, mblog_values))
+        mblog_data['id'] = mblog_values[0]
+        mblog_data['label'] = 'mblog'
+        user_data = dict(zip(user_keys, user_values))
+        user_data['id'] = user_values[0]
+        user_data['label'] = 'user'
+        link_u2m = {'source': user_data['id'], 'target': mblog_data['id'], 'relation': '发布'}
+        link_m2a = {'source': mblog_data['id'], 'target': mblog_values[-1], 'relation': '发布'}
+        return {
+            'mblog_data': mblog_data,
+            'user_data': user_data,
+            'link_u2m': link_u2m,
+            'link_m2a': link_m2a,
+        }
+
+    result = list(map(lambda x: func(x), data))
+    mblogs_data = list(map(lambda x: x['mblog_data'], result))
+    users_data = list(map(lambda x: x['user_data'], result))
+    links_u2m = list(map(lambda x: x['link_u2m'], result))
+    links_m2a = list(map(lambda x: x['link_m2a'], result))
+
+
+def weight_calc_test():
+    sql_mblog_info = 'select min(mblog_reposts_count), min(mblog_comments_count), min(mblog_attitudes_count) from mblogs_data'
+    info_data = pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_info)
+    print(info_data)
+
+    sql_mblog_info = 'select max(user_followers_count), max(user_friends_count), max(user_statuses_count) from users_data'
+    info_data = pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_info)
+    print(info_data)
+
 
 if __name__ == '__main__':
     # list2str()
@@ -129,4 +200,6 @@ if __name__ == '__main__':
     # n_queen()
     # tree_stain()
     # mblogs_weight_statistics()
-    location_correction()
+    # location_correction()
+    # time_calc_test()
+    weight_calc_test()
