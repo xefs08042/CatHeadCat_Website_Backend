@@ -72,16 +72,14 @@ def lda_test(data, num_topics):
     #             data.append(jieba.lcut(text))
     #         except Exception as e:
     #             continue
+    mid_data = data['mid_data']
+    text_data = data['text_data']
     # 构建词典，语料向量化表示：
-    dictionary = Dictionary(data)
+    dictionary = Dictionary(text_data)
     dictionary.filter_n_most_frequent(100)
-    corpus = [dictionary.doc2bow(text) for text in data]
+    corpus = [dictionary.doc2bow(text) for text in text_data]
     # 构建LDA模型
     lda = LdaModel(corpus=corpus, id2word=dictionary, num_topics=num_topics, passes=30, random_state=1)  # 分为5个主题
-    # print(lda.print_topics(num_topics=5, num_words=15))  # 每个主题输出15个单词
-    topic_list=lda.print_topics(5)
-    for topic in topic_list:
-        print(topic)
 
     # 结果输出与可视化
     for i in lda.get_document_topics(corpus)[:]:
@@ -96,12 +94,19 @@ def lda_test(data, num_topics):
     pyLDAvis.save_html(data_vis, 'static/topic.html')
 
     # 查看每一篇的主题
-    # for i, test_doc in enumerate(data):
-    #     doc_bow = dictionary.doc2bow(test_doc)      #文档转换成bow
-    #     doc_lda = lda[doc_bow]
-    #     print('第%s篇：' % str(i+1))
-    #     print(doc_lda)
-    #     print(test_doc)
+    for i, test_doc in enumerate(text_data):
+        doc_bow = dictionary.doc2bow(test_doc)      #文档转换成bow
+        doc_lda = lda[doc_bow]
+        print('第%s篇：' % str(i+1))
+        print(doc_lda)
+        print(test_doc)
+        with open('static/cache.csv', 'a+', newline='', encoding='utf-8') as f:
+            csv.writer(f).writerow([mid_data[i], doc_lda])
+
+    # print(lda.print_topics(num_topics=5, num_words=15))  # 每个主题输出15个单词
+    topic_list = lda.print_topics(num_topics=num_topics, num_words=10)
+    for topic in topic_list:
+        print(topic)
 
 
 def get_text():
@@ -110,18 +115,33 @@ def get_text():
     mid_data = list(map(lambda x: x[0], sql_result))
     text_data = list(map(lambda x: jieba.lcut(re.sub('[^\u4e00-\u9fa5]+', '', x[1])), sql_result))
     print('text_data loaded')
-    return text_data
+    return {'mid_data': mid_data, 'text_data': text_data}
     # with open('static/cache.csv', 'w', newline='', encoding='utf-8') as csvfile:
     #     for item in text_data:
     #         csv.writer(csvfile).writerow(item)
 
 
+def update_topic_to_pgsql():
+    with open('static/cache.csv', 'r', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            mid = row[0]
+            topic_prob_list = eval(row[1])
+            topic_list = list(map(lambda x: x[0], topic_prob_list))
+            prob_list = list(map(lambda x: x[1], topic_prob_list))
+            topic = topic_list[prob_list.index(max(prob_list))]
+            print({'mid': mid, 'topic': topic})
+            sql_update_topic = 'update mblogs_data set mblog_topic_class = ' + str(topic) + ' where mid = ' + str(mid)
+            pgSQL_conn_no_return(pgsql_data_KG, sql_update_topic)
+
+
 if __name__ == '__main__':
-    start = time.time()
-    text_data = get_text()
-    end = time.time()
-    print('time cost: ', end - start)
-    lda_evalution_metrics(text_data)
-    # lda_test(text_data, 5)
-    end = time.time()
-    print('time cost: ', end - start)
+    # start = time.time()
+    # text_data = get_text()
+    # end = time.time()
+    # print('time cost: ', end - start)
+    # # lda_evalution_metrics(text_data)
+    # lda_test(text_data, 8)
+    # end = time.time()
+    # print('time cost: ', end - start)
+    update_topic_to_pgsql()
