@@ -239,33 +239,54 @@ def get_address_node(sql):
     # sql = 'select * from addresses_data'
     addresses_values = pgSQL_conn_has_return(pgsql_data_KG, sql)
     address_keys = ['address', 'formatted_address', 'country', 'province', 'citycode', 'city', 'district', 'township',
-                    'adcode', 'lon', 'lat', 'level', 'geom_WKT']
-    addresses_data = []
-    for address_values in addresses_values:
-        address_data = {}
-        for i in range(len(address_keys)):
-            address_data[address_keys[i]] = address_values[i]
-        address_data['id'] = address_values[0]
-        address_data['label'] = 'location'
-        addresses_data.append(address_data)
+                    'adcode', 'lon', 'lat', 'level', 'geom_WKT', 'id', 'label']
+
+    # def get_address_node(address_values):
+    #     address_values = list(address_values) + [address_values[0], 'location']
+    #     address_data = dict(list(map(lambda x, y: [x, y], address_keys, address_values)))
+    #     return address_data
+    # addresses_data = list(map(lambda x: get_address_node(x), addresses_values))
+    addresses_data = list(map(lambda x: dict(list(map(lambda x, y: [x, y], address_keys, list(x) + [x[0], 'location']))), addresses_values))
+
+    # addresses_data = []
+    # for address_values in addresses_values:
+    #     address_data = {}
+    #     for i in range(len(address_keys)):
+    #         address_data[address_keys[i]] = address_values[i]
+    #     address_data['id'] = address_values[0]
+    #     address_data['label'] = 'location'
+    #     addresses_data.append(address_data)
     return addresses_data
 
 
 def get_source_id_by_name(name):
     sql = "select * from addresses_data where formatted_address = '" + name + "'"
     address = pgSQL_conn_has_return(pgsql_data_KG, sql)
-    if len(address) == 0:
-        return 0
-    else:
-        source_id = address[0][0]
-        return source_id
+    # if len(address) == 0:
+    #     return 0
+    # else:
+    #     return address[0][0]
+    return 0 if len(address) == 0 else address[0][0]
+
+
+# 获取位置之间的层级关系，用于知识图谱关系构建——基于预存至数据库的关系
+def get_address_link_from_pgsql(addresses_data):
+    target_address_list = list(map(lambda x: x['id'], addresses_data))
+    sql_link = 'select * from addresses_links where target in ' + str(tuple(target_address_list))
+    sql_link_result = pgSQL_conn_has_return(pgsql_data_KG, sql_link)
+    addresses_link = list(map(lambda x: {'source': x[0], 'target': x[1], 'relation': x[2]}, sql_link_result))
+    source_address_list = list(map(lambda x: x[0], sql_link_result))
+    address_list = list(set(source_address_list + target_address_list))
+    sql_address = 'select * from addresses_data where address in ' + str(tuple(address_list))
+    addresses_data = get_address_node(sql_address)
+    return [addresses_data, addresses_link]
 
 
 # 获取位置之间的层级关系，用于知识图谱关系构建
 def get_address_link(addresses_data):
     target_address_list = list(map(lambda x: x['id'], addresses_data))
     addresses_link = []
-    for i,address in enumerate(addresses_data):
+    for address in addresses_data:
         target_id = address['id']
         if address['city'] != '[]':
             if address['district'] != '[]':
@@ -320,20 +341,20 @@ def address_judge(mblog_loc, user_loc):
 
 
 # 获取台风杜苏芮相关微博及对应发布用户的数据，用于知识图谱节点构建
-def get_mblog_user_node(sql):
+def get_mblog_user_node(sql_result):
     mblog_keys = ['mid', 'mblog_id', 'user_id', 'user_nickname', 'time_info', 'location_info', 'mblog_text',
                   'mblog_reposts_count', 'mblog_comments_count', 'mblog_attitudes_count', 'mblog_weight',
-                  'location_correction']
+                  'location_correction', 'mblog_topic_class']
     user_keys = ['user_id', 'user_nickname', 'user_gender', 'user_location', 'user_verified_type',
                  'user_followers_count', 'user_friends_count', 'user_statuses_count', 'user_weight']
     # sql = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id ' \
     #       "and mblogs_data.location_correction != '' limit 500"
-    data = pgSQL_conn_has_return(pgsql_data_KG, sql)
+    # data = pgSQL_conn_has_return(pgsql_data_KG, sql)
+    data = sql_result
 
     def func(item):
         mblog_values = item[: len(mblog_keys)]
         user_values = item[len(mblog_keys):]
-
         mblog_data = dict(zip(mblog_keys, mblog_values))
         mblog_data['id'] = mblog_values[0]
         mblog_data['label'] = 'mblog'
@@ -341,7 +362,7 @@ def get_mblog_user_node(sql):
         user_data['id'] = user_values[0]
         user_data['label'] = 'user'
         link_u2m = {'source': user_data['id'], 'target': mblog_data['id'], 'relation': '发布'}
-        link_m2a = {'source': mblog_data['id'], 'target': mblog_values[-1], 'relation': '发布'}
+        link_m2a = {'source': mblog_data['id'], 'target': mblog_values[-2], 'relation': '发布'}
         return {
             'mblog_data': mblog_data,
             'user_data': user_data,
@@ -363,7 +384,7 @@ def get_mblog_user_node(sql):
     #              'user_followers_count', 'user_friends_count', 'user_statuses_count', 'user_weight']
     # mblogs_values = pgSQL_conn_has_return(pgsql_data_KG, sql)
     # mblog_keys = ['mid', 'mblog_id', 'user_id', 'user_nickname', 'time_info', 'location_info', 'mblog_text',
-    #               'mblog_reposts_count', 'mblog_comments_count', 'mblog_attitudes_count', 'mblog_weight', 'location_correction']
+    #               'mblog_reposts_count', 'mblog_comments_count', 'mblog_attitudes_count', 'mblog_weight', 'location_correction', 'mblog_topic_class']
     # mblogs_data = []
     # users_data = []
     # links_u2m = []
@@ -468,6 +489,7 @@ def time_judge(origin_date_str, mids, mblog_node_limit, float_ratio):
 class GetKGData(Resource):
     def post(self):
         time_start = time.time()
+        status = ''
         # 浏览器负载量的设置（人为设置），以mblog点数量为基准
         mblog_node_limit, float_ratio = 500, 0.2
         limit_l, limit_r = mblog_node_limit * (1 - float_ratio), mblog_node_limit * (1 + float_ratio)
@@ -480,7 +502,10 @@ class GetKGData(Resource):
         # sql_address 查询位于地理范围内的所有位置点（须注意，其中点所连接的上级点可能不包含在内）
         sql_address = 'select * from addresses_data where geom && ST_SetSRID(ST_MakeBox2D(' + extent_str + '),4326)'
         address_nodes = get_address_node(sql_address)
-        [address_nodes, links_a] = get_address_link(address_nodes)
+        # [address_nodes, links_a] = get_address_link(address_nodes)
+        [address_nodes, links_a] = get_address_link_from_pgsql(address_nodes)
+        time_stop = time.time()
+        print('time_stop: ', time_stop - time_start)
         # print({'address_nodes': address_nodes})
         # print({'links_a': links_a})
 
@@ -497,23 +522,25 @@ class GetKGData(Resource):
         mids_loc = ','.join(list(map(lambda x: x[2], sql_mblog_result)))
         mids_loc = str(tuple(list(map(lambda x: int(x), mids_loc.split(',')))))
         if sum(mblog_count_by_day) <= mblog_node_limit:
-            print({'status': 'case 1: loc in limit'})
+            status = 'case 1: loc in limit'
             sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id and ' \
                           'mblogs_data.mid in ' + mids_loc  # 查询时长80ms左右
+            sql_result = pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_1)
         else:
             mids_time = list(sql_mblog_result)[mblog_count_by_day.index(max(mblog_count_by_day))][2]
             mids_time = str(tuple(list(map(lambda x: int(x), mids_time.split(',')))))
             if max(mblog_count_by_day) <= mblog_node_limit:
                 if max(mblog_count_by_day) in pd.Interval(limit_l, limit_r):
-                    print('case 2: loc out limit, time in limit')
+                    status = 'case 2: loc out limit, time in limit'
                     sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id' \
                                   ' and mblogs_data.mid in ' + mids_time
                 else:
                     # 从最高日起算，判断num是否位于限值区间，向两侧扩展直至符合要求
                     origin_date = list(sql_mblog_result)[mblog_count_by_day.index(max(mblog_count_by_day))][0]
                     judge_result = time_judge(origin_date, mids_loc, mblog_node_limit, float_ratio)
-                    print('case 2: loc out limit, time in limit but plummet')
+                    status = 'case 2: loc out limit, time in limit but plummet'
                     sql_mblog_1 = judge_result['sql_mblog']
+                sql_result = pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_1)
             else:
                 # 按照博客及用户权重倒序查询
                 # sql_num = 'select count(*) from mblogs_data where mid in ' + mids_time + ' and mblog_weight > 0.0001'
@@ -523,30 +550,43 @@ class GetKGData(Resource):
                 sql_weight_result = pgSQL_conn_has_return(pgsql_data_KG, sql_weight)
                 [num_weight, mids_weight] = [sql_weight_result[0][0], sql_weight_result[0][1]]
                 mids_weight = str(tuple(list(map(lambda x: int(x), mids_weight.split(',')))))
+                print(num_weight)
                 if num_weight < mblog_node_limit:
                     if num_weight in pd.Interval(limit_l, limit_r):
-                        print('case 3: loc out limit, time out limit, weight in limit')
+                        status = 'case 3: loc out limit, time out limit, weight in limit'
                         sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id' \
                                       ' and mblogs_data.mid in ' + mids_weight  # 查询时长80ms左右
                     else:
-                        print('case 3: loc out limit, time out limit, weight in limit but plummet')
+                        status = 'case 3: loc out limit, time out limit, weight in limit but plummet'
                         sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id' \
                                       ' and mblogs_data.mid in ' + mids_time + ' order by mblog_weight + user_weight' \
                                       ' desc limit ' + str(random.randint(limit_l, limit_r))
+                    sql_result = pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_1)
                 else:
                     # 根据文本质量划分
-                    print('case 4: loc out limit, time out limit, weight out limit, topic continue')
-                    sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id' \
-                                  ' and mblogs_data.mid in ' + mids_weight + ' limit ' + str(mblog_node_limit)
-        print('final_mblog_num: ', len(pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_1)))
-        [mblog_nodes, user_nodes, links_u2m, links_m2a] = get_mblog_user_node(sql_mblog_1)
+                    status = 'case 4: loc out limit, time out limit, weight out limit, topic to limit'
+                    sql_by_topic = 'select count(*), mblog_topic_class from mblogs_data group by mblog_topic_class' \
+                                   ' order by mblog_topic_class'
+                    topic_result = pgSQL_conn_has_return(pgsql_data_KG, sql_by_topic)
+                    topic_count_all = sum(list(map(lambda x: x[0], topic_result)))
+                    sql_result = []
+                    for item in topic_result:
+                        sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id' \
+                                      ' and mblogs_data.mid in ' + mids_weight + ' and mblogs_data.mblog_topic_class = ' \
+                                      + str(item[1]) + ' order by length(mblogs_data.mblog_text) desc ' + ' limit ' + \
+                                      str(int(item[0]/topic_count_all*mblog_node_limit))
+                        item_data = pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_1)
+                        sql_result += item_data
+        print('status: ', status)
+        print('final_mblog_num: ', len(sql_result))
+        [mblog_nodes, user_nodes, links_u2m, links_m2a] = get_mblog_user_node(sql_result)
         nodes = address_nodes + mblog_nodes + user_nodes
         links = links_u2m + links_m2a + links_a
         KG_json = {'nodes': nodes, 'links': links}
 
-        # KG_json_str = json.dumps(KG_json, indent=4)
-        # with open('static/KG.json', 'w', encoding='utf-8') as json_file:
-        #     json_file.write(KG_json_str)
+        KG_json_str = json.dumps(KG_json, indent=4)
+        with open('static/KG.json', 'w', encoding='utf-8') as json_file:
+            json_file.write(KG_json_str)
 
         # with open('static/KG.json', 'r', encoding='utf-8') as f:
         #     content = f.read()
@@ -556,7 +596,11 @@ class GetKGData(Resource):
         time_cost = time_end - time_start
         print('time cost', time_cost, 's')
 
-        return KG_json
+        return {
+            'KG_json': KG_json,
+            'status': status,
+            'mblog_count': len(sql_result)
+        }
 
 
 api.add_resource(Login, '/login/')

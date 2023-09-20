@@ -151,7 +151,7 @@ def time_calc_test():
 def get_KG_json():
     mblog_keys = ['mid', 'mblog_id', 'user_id', 'user_nickname', 'time_info', 'location_info', 'mblog_text',
                   'mblog_reposts_count', 'mblog_comments_count', 'mblog_attitudes_count', 'mblog_weight',
-                  'location_correction']
+                  'location_correction','mblog_topic_class']
     user_keys = ['user_id', 'user_nickname', 'user_gender', 'user_location', 'user_verified_type',
                  'user_followers_count', 'user_friends_count', 'user_statuses_count', 'user_weight']
     sql = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id ' \
@@ -194,6 +194,17 @@ def weight_calc_test():
     print(info_data)
 
 
+def save_address_link_to_pgsql():
+    sql = 'select * from addresses_data'
+    address_nodes = app.get_address_node(sql)
+    [address_nodes, links_a] = app.get_address_link(address_nodes)
+    # for i, link in enumerate(links_a):
+    #     sql_insert = 'insert into addresses_links (source, target, relation) values ' + str(tuple(link.values()))
+    #     pgSQL_conn_no_return(pgsql_data_KG, sql_insert)
+    #     print(i)
+    [address_nodes, links_a] = app.get_address_link_from_pgsql(address_nodes)
+
+
 if __name__ == '__main__':
     # list2str()
     # sweet_flower_chicken()
@@ -202,4 +213,5 @@ if __name__ == '__main__':
     # mblogs_weight_statistics()
     # location_correction()
     # time_calc_test()
-    weight_calc_test()
+    # weight_calc_test()
+    save_address_link_to_pgsql()
