@@ -4,11 +4,13 @@ import json
 import time
 import random
 import datetime
+import calendar
 import requests
 import psycopg2
 import pandas as pd
 
 from datetime import date
+from collections import defaultdict
 from flask import Flask, request, send_from_directory
 from flask_restful import Api, Resource
 from flask_cors import CORS
@@ -167,6 +169,20 @@ class UpdateLog(Resource):
         return {'status': 'success'}
 
 
+# 接收消费信息表单，并将其上传至数据库中
+class UpdateSpending(Resource):
+    def post(self):
+        data = request.get_json()
+        keys = str(tuple(['user_id'] + list(data.keys()))).replace("'", "")
+        value_list = list(data.values())
+        # date = datetime.datetime.strptime(value_list[0], '%Y-%m-%dT%H:%M:%S.000+08:00').strftime('%Y-%m-%d')
+        value_list[0] = "to_date('" + value_list[0][:10] + "', 'YYYY-MM-DD')"
+        values = str(tuple([user_id] + value_list))
+        sql = ('insert into user_account ' + keys + ' values ' + values).replace('"', '')
+        pgSQL_conn_no_return(pgsql_data_CHC, sql)
+        return {'status': 'success'}
+
+
 def time_format_converse(date_el_plus, time_el_plus):
     month_map = {
         'Jan': '01',
@@ -232,6 +248,88 @@ class GetHistoryData(Resource):
             print(query_json)
             query_json_list.append(query_json)
         return query_json_list
+
+
+# 获取历史账目记录
+class getHistoryAccount(Resource):
+    def get(self):
+        key_list = get_key_list()
+        sql_time_range = 'select min(date), max(date) from user_account'
+        (start_date, end_date) = pgSQL_conn_has_return(pgsql_data_CHC, sql_time_range)[0]
+        [month_list, month_dict] = get_year_month(start_date, end_date)
+        value_list = get_value_list_by_time(month_list[0], key_list)
+        account_data = get_account_data_by_time(month_list[0])
+        account_data['month_dict'] = month_dict
+        account_data['account_data'] = value_list
+
+        return account_data
+
+    def post(self):
+        year_month = request.get_json()['year_month']
+        # 获取每一条消费数据记录
+        key_list = get_key_list()
+        value_list = get_value_list_by_time(year_month, key_list)
+        account_data = get_account_data_by_time(year_month)
+        account_data['account_data'] = value_list
+
+        return account_data
+
+
+def get_key_list():
+    sql_key = "select column_name from information_schema.columns where table_schema='public' and table_name='user_account'"
+    key = pgSQL_conn_has_return(pgsql_data_CHC, sql_key)
+    key_list = list(map(lambda x: x[0], key))[1:]
+    return key_list
+
+
+def get_value_list_by_time(time, key_list):
+    sql_value = "select * from user_account where to_char(date, 'YYYY-MM') = '" + time + "'"
+    value = pgSQL_conn_has_return(pgsql_data_CHC, sql_value)
+    value_list = list(map(lambda x: [datetime.datetime.strftime(list(x)[1], '%Y-%m-%d')] + list(x)[2:], value))
+    data = list(map(lambda x: dict(zip(key_list, x)), value_list))
+    return data
+
+
+def get_year_month(start_date, end_date):
+    month_list = []
+    start_date_str = datetime.datetime.strftime(start_date, '%Y-%m')
+    end_date_str = datetime.datetime.strftime(end_date, '%Y-%m')
+
+    while start_date_str <= end_date_str:
+        month_list.append(start_date_str)
+        start_date += datetime.timedelta(days=calendar.monthrange(start_date.year, start_date.month)[1])
+        start_date_str = start_date.strftime('%Y-%m')
+    month_list.reverse()
+
+    month_dict = defaultdict(list)
+    for item in month_list:
+        month_dict[item.split('-')[0]].append(item.split('-')[1])
+    return [month_list, month_dict]
+
+
+def get_account_data_by_time(year_month):
+    # 获取当月消费总额，用于提醒用户做好资金规划
+    sql_amount = "select sum(amount) from user_account where to_char(date, 'YYYY-MM') = '" + year_month + "'"
+    total_amount_month = pgSQL_conn_has_return(pgsql_data_CHC, sql_amount)[0][0]
+
+    # 获取每日消费总额，用于绘制消费走向折线图
+    sql_spending_trend = "select to_char(date, 'YYYY-MM-DD'), sum(amount) from user_account where " \
+                         "to_char(date, 'YYYY-MM') = '" + year_month + "'group by to_char(date, 'YYYY-MM-DD')"
+    spending_trend = pgSQL_conn_has_return(pgsql_data_CHC, sql_spending_trend)
+    spending_trend_data = {'date': list(map(lambda x: x[0], spending_trend)),
+                           'amount': list(map(lambda x: x[1], spending_trend))}
+
+    # 获取当月各类消费比例，用于绘制各类消费占比饼图
+    sql_spending_ratio = "select type, sum(amount) from user_account where " \
+                         "to_char(date, 'YYYY-MM') = '" + year_month + "'group by type"
+    spending_ratio = pgSQL_conn_has_return(pgsql_data_CHC, sql_spending_ratio)
+    spending_ratio_data = list(map(lambda x: {'value': x[1], 'name': x[0]}, spending_ratio))
+
+    return {
+        'total_amount_month': total_amount_month,
+        'spending_trend': spending_trend_data,
+        'spending_ratio': spending_ratio_data
+    }
 
 
 # 获取台风杜苏芮的位置数据，用于知识图谱节点构建
@@ -607,7 +705,9 @@ api.add_resource(Login, '/login/')
 api.add_resource(AcceptPicture, '/upload/picture/')
 api.add_resource(SendPicture, '/uploads/<path:filename>')
 api.add_resource(UpdateLog, '/upload/log_info/')
+api.add_resource(UpdateSpending, '/upload/spending_info/')
 api.add_resource(GetHistoryData, '/get_history_data/')
+api.add_resource(getHistoryAccount, '/get_history_account/')
 api.add_resource(GetKGData, '/get_KG_data/')
 
 

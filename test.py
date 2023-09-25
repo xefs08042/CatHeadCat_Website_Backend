@@ -1,11 +1,12 @@
 import app
-from app import pgsql_data_KG, pgSQL_conn_has_return, address_judge, address_format, pgSQL_conn_no_return
+from app import pgsql_data_KG, pgsql_data_CHC, pgSQL_conn_has_return, address_judge, address_format, pgSQL_conn_no_return
+from collections import defaultdict
 from itertools import groupby
 import matplotlib.pyplot as plt
 import numpy as np
 import math
 import pandas as pd
-import time, datetime
+import time, datetime, calendar
 
 
 # 测试列表直接转字符串
@@ -205,6 +206,28 @@ def save_address_link_to_pgsql():
     [address_nodes, links_a] = app.get_address_link_from_pgsql(address_nodes)
 
 
+def month_calc():
+    month_list = []
+    start_date = datetime.date(2023, 9, 21)
+    end_date = datetime.date(2024, 7, 28)
+    start_date_str = datetime.datetime.strftime(start_date, '%Y-%m')
+    end_date_str = datetime.datetime.strftime(end_date, '%Y-%m')
+
+    month = start_date_str
+    dt = start_date
+    while month <= end_date_str:
+        month_list.append(month)
+        dt += datetime.timedelta(days=calendar.monthrange(dt.year, dt.month)[1])
+        month = dt.strftime('%Y-%m')
+    month_list.reverse()
+
+    month_dict = defaultdict(list)
+    for item in month_list:
+        month_dict[item.split('-')[0]].append(item.split('-')[1])
+    print(month_list)
+    print(dict(month_dict))
+
+
 if __name__ == '__main__':
     # list2str()
     # sweet_flower_chicken()
@@ -214,4 +237,5 @@ if __name__ == '__main__':
     # location_correction()
     # time_calc_test()
     # weight_calc_test()
-    save_address_link_to_pgsql()
+    # save_address_link_to_pgsql()
+    month_calc()
