@@ -228,6 +228,27 @@ def month_calc():
     print(dict(month_dict))
 
 
+def get_history_logs():
+    sql_time_range = 'select min(upload_time), max(upload_time) from user_logs'
+    (start_date, end_date) = pgSQL_conn_has_return(pgsql_data_CHC, sql_time_range)[0]
+    [month_list, month_dict] = app.get_year_month(start_date, end_date)
+
+    sql = "select * from user_logs where to_char(upload_time, 'YYYY-MM') = '" \
+          + month_list[0] + "' order by upload_time desc"
+    query_data = pgSQL_conn_has_return(pgsql_data_CHC, sql)
+    query_json_list = []
+    for row in query_data:
+        query_json = {}
+        query_json['user_id'] = row[0]
+        query_json['upload_time'] = row[1].strftime('%Y-%m-%d %H:%M:%S')
+        query_json['theme'] = row[2]
+        query_json['content'] = row[3].split('\r\n')
+        query_json['tags'] = row[4]
+        query_json['images_url'] = row[5]
+        query_json_list.append(query_json)
+    print(len(query_json_list))
+
+
 if __name__ == '__main__':
     # list2str()
     # sweet_flower_chicken()
@@ -238,4 +259,5 @@ if __name__ == '__main__':
     # time_calc_test()
     # weight_calc_test()
     # save_address_link_to_pgsql()
-    month_calc()
+    # month_calc()
+    get_history_logs()

@@ -233,57 +233,71 @@ class ComplexEncoder(json.JSONEncoder):
 # 获取历史日志数据
 class GetHistoryData(Resource):
     def get(self):
-        sql = 'select * from user_logs order by upload_time desc'
-        query_data = pgSQL_conn_has_return(pgsql_data_CHC, sql)
-        query_json_list = []
-        for row in query_data:
-            print(row)
-            query_json = {}
-            query_json['user_id'] = row[0]
-            query_json['upload_time'] = row[1].strftime('%Y-%m-%d %H:%M:%S')
-            query_json['theme'] = row[2]
-            query_json['content'] = row[3].split('\r\n')
-            query_json['tags'] = row[4]
-            query_json['images_url'] = row[5]
-            print(query_json)
-            query_json_list.append(query_json)
-        return query_json_list
+        sql_time_range = 'select min(upload_time), max(upload_time) from user_logs'
+        (start_date, end_date) = pgSQL_conn_has_return(pgsql_data_CHC, sql_time_range)[0]
+        [month_list, month_dict] = get_year_month(start_date, end_date)
+        query_json_list = get_logs_by_time(month_list[0])
+        return {
+            'month_dict': month_dict,
+            'logs': query_json_list
+        }
 
+    def post(self):
+        year_month = request.get_json()['year_month']
+        query_json_list = get_logs_by_time(year_month)
+        return {'logs': query_json_list}
+
+
+def get_logs_by_time(year_month):
+    sql = "select * from user_logs where to_char(upload_time, 'YYYY-MM') = '" \
+          + year_month + "' order by upload_time desc"
+    query_data = pgSQL_conn_has_return(pgsql_data_CHC, sql)
+    query_json_list = []
+    for row in query_data:
+        print(row)
+        query_json = {}
+        query_json['user_id'] = row[0]
+        query_json['upload_time'] = row[1].strftime('%Y-%m-%d %H:%M:%S')
+        query_json['theme'] = row[2]
+        query_json['content'] = row[3].split('\r\n')
+        query_json['tags'] = row[4]
+        query_json['images_url'] = row[5]
+        print(query_json)
+        query_json_list.append(query_json)
+    return query_json_list
 
 # 获取历史账目记录
 class getHistoryAccount(Resource):
     def get(self):
-        key_list = get_key_list()
+        key_list = get_account_key_list()
         sql_time_range = 'select min(date), max(date) from user_account'
         (start_date, end_date) = pgSQL_conn_has_return(pgsql_data_CHC, sql_time_range)[0]
         [month_list, month_dict] = get_year_month(start_date, end_date)
-        value_list = get_value_list_by_time(month_list[0], key_list)
+        value_list = get_account_value_list_by_time(month_list[0], key_list)
         account_data = get_account_data_by_time(month_list[0])
         account_data['month_dict'] = month_dict
         account_data['account_data'] = value_list
-
         return account_data
 
     def post(self):
         year_month = request.get_json()['year_month']
         # 获取每一条消费数据记录
-        key_list = get_key_list()
-        value_list = get_value_list_by_time(year_month, key_list)
+        key_list = get_account_key_list()
+        value_list = get_account_value_list_by_time(year_month, key_list)
         account_data = get_account_data_by_time(year_month)
         account_data['account_data'] = value_list
-
         return account_data
 
 
-def get_key_list():
+def get_account_key_list():
     sql_key = "select column_name from information_schema.columns where table_schema='public' and table_name='user_account'"
     key = pgSQL_conn_has_return(pgsql_data_CHC, sql_key)
     key_list = list(map(lambda x: x[0], key))[1:]
     return key_list
 
 
-def get_value_list_by_time(time, key_list):
-    sql_value = "select * from user_account where to_char(date, 'YYYY-MM') = '" + time + "'"
+def get_account_value_list_by_time(time, key_list):
+    sql_value = "select * from user_account where to_char(date, 'YYYY-MM') = '" + time + "' order by date desc"
     value = pgSQL_conn_has_return(pgsql_data_CHC, sql_value)
     value_list = list(map(lambda x: [datetime.datetime.strftime(list(x)[1], '%Y-%m-%d')] + list(x)[2:], value))
     data = list(map(lambda x: dict(zip(key_list, x)), value_list))
@@ -324,7 +338,6 @@ def get_account_data_by_time(year_month):
                          "to_char(date, 'YYYY-MM') = '" + year_month + "'group by type"
     spending_ratio = pgSQL_conn_has_return(pgsql_data_CHC, sql_spending_ratio)
     spending_ratio_data = list(map(lambda x: {'value': x[1], 'name': x[0]}, spending_ratio))
-
     return {
         'total_amount_month': total_amount_month,
         'spending_trend': spending_trend_data,
