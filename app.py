@@ -266,6 +266,7 @@ def get_logs_by_time(year_month):
         query_json_list.append(query_json)
     return query_json_list
 
+
 # 获取历史账目记录
 class getHistoryAccount(Resource):
     def get(self):
@@ -328,18 +329,19 @@ def get_account_data_by_time(year_month):
 
     # 获取每日消费总额，用于绘制消费走向折线图
     sql_spending_trend = "select to_char(date, 'YYYY-MM-DD'), sum(amount) from user_account where " \
-                         "to_char(date, 'YYYY-MM') = '" + year_month + "'group by to_char(date, 'YYYY-MM-DD')"
+                         "to_char(date, 'YYYY-MM') = '" + year_month + "'group by to_char(date, 'YYYY-MM-DD') " \
+                         "order by to_char(date, 'YYYY-MM-DD')"
     spending_trend = pgSQL_conn_has_return(pgsql_data_CHC, sql_spending_trend)
     spending_trend_data = {'date': list(map(lambda x: x[0], spending_trend)),
-                           'amount': list(map(lambda x: x[1], spending_trend))}
+                           'amount': list(map(lambda x: round(x[1], 2), spending_trend))}
 
     # 获取当月各类消费比例，用于绘制各类消费占比饼图
     sql_spending_ratio = "select type, sum(amount) from user_account where " \
                          "to_char(date, 'YYYY-MM') = '" + year_month + "'group by type"
     spending_ratio = pgSQL_conn_has_return(pgsql_data_CHC, sql_spending_ratio)
-    spending_ratio_data = list(map(lambda x: {'value': x[1], 'name': x[0]}, spending_ratio))
+    spending_ratio_data = list(map(lambda x: {'value': round(x[1], 2), 'name': x[0]}, spending_ratio))
     return {
-        'total_amount_month': total_amount_month,
+        'total_amount_month': round(total_amount_month, 2),
         'spending_trend': spending_trend_data,
         'spending_ratio': spending_ratio_data
     }
@@ -472,8 +474,8 @@ def get_mblog_user_node(sql_result):
         user_data = dict(zip(user_keys, user_values))
         user_data['id'] = user_values[0]
         user_data['label'] = 'user'
-        link_u2m = {'source': user_data['id'], 'target': mblog_data['id'], 'relation': '发布'}
-        link_m2a = {'source': mblog_data['id'], 'target': mblog_values[-2], 'relation': '发布'}
+        link_u2m = {'source': user_data['id'], 'target': mblog_data['id'], 'relation': 'Upload'}
+        link_m2a = {'source': mblog_data['id'], 'target': mblog_values[-2], 'relation': 'Post In'}
         return {
             'mblog_data': mblog_data,
             'user_data': user_data,
@@ -598,6 +600,12 @@ def time_judge(origin_date_str, mids, mblog_node_limit, float_ratio):
 
 # 获取知识图谱数据，相应给前端d3可视化
 class GetKGData(Resource):
+    def get(self):
+        with open('static/KG.json', 'r', encoding='utf-8') as f:
+            content = f.read()
+            KG_json = json.loads(content)
+        return {'KG_json': KG_json}
+
     def post(self):
         time_start = time.time()
         status = ''
@@ -695,9 +703,9 @@ class GetKGData(Resource):
         links = links_u2m + links_m2a + links_a
         KG_json = {'nodes': nodes, 'links': links}
 
-        KG_json_str = json.dumps(KG_json, indent=4)
-        with open('static/KG.json', 'w', encoding='utf-8') as json_file:
-            json_file.write(KG_json_str)
+        # KG_json_str = json.dumps(KG_json, indent=4)
+        # with open('static/KG.json', 'w', encoding='utf-8') as json_file:
+        #     json_file.write(KG_json_str)
 
         # with open('static/KG.json', 'r', encoding='utf-8') as f:
         #     content = f.read()

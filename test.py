@@ -5,6 +5,7 @@ from itertools import groupby
 import matplotlib.pyplot as plt
 import numpy as np
 import math
+import openai
 import pandas as pd
 import time, datetime, calendar
 
@@ -186,11 +187,11 @@ def get_KG_json():
 
 
 def weight_calc_test():
-    sql_mblog_info = 'select min(mblog_reposts_count), min(mblog_comments_count), min(mblog_attitudes_count) from mblogs_data'
+    sql_mblog_info = 'select max(mblog_reposts_count), max(mblog_comments_count), max(mblog_attitudes_count) from mblogs_data'
     info_data = pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_info)
     print(info_data)
 
-    sql_mblog_info = 'select max(user_followers_count), max(user_friends_count), max(user_statuses_count) from users_data'
+    sql_mblog_info = 'select min(user_followers_count), min(user_friends_count), min(user_statuses_count) from users_data'
     info_data = pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_info)
     print(info_data)
 
@@ -248,6 +249,283 @@ def get_history_logs():
         query_json_list.append(query_json)
     print(len(query_json_list))
 
+def list_derivation():
+    print([i for i in range(10)])
+    def judge(i):
+        return i + 1 if i % 2 == 0 else i + 2
+    data_list = [judge(i) for i in range(10)]
+    print(data_list)
+
+    list_a = ['1', '2', '3']
+    list_b = ['q', 'w', 'e', 'r']
+    list_a_b = [(num, char) for num in list_a for char in list_b]
+    print(list_a_b)
+    data_dict = {
+        '1': 'q',
+        '2': 'w',
+        '3': 'e'
+    }
+    data_list = [(key, value) for key, value in data_dict.items()]
+    print(data_list)
+
+
+def class_test():
+    # 简单示例
+    class MyClass:
+        i = 123
+
+        @staticmethod
+        def f():
+            return 'method_f_return'
+    x = MyClass()
+    print('x.i: ', x.i)
+    print('x.f(): ', x.f())
+
+    # 私有属性与公开属性
+    class JustCounter:
+        __privateCount = 0
+        publicCount = 0
+
+        def count(self):
+            self.__privateCount += 1
+            self.publicCount += 2
+            print('counter.__privateCount(from class inner): ', counter.__privateCount)
+    counter = JustCounter()
+    counter.count()
+    counter.count()
+    print('counter.publicCount: ', counter.publicCount)
+    # print('counter.__privateCount: ', counter.__privateCount)     # 无法在外部输出私有属性
+
+    # 私有方法与公开方法(这里没有讲私有方法)，私有属性通过set/get公开方法操作
+    class Parent(object):
+        __name = 'test'
+        __age = 18
+
+        # 构造函数，初始化生成对象
+        def __init__(self, name, age):
+            self.__name = name
+            self.__age = age
+
+        def set_name(self, name):
+            self.__name = name
+
+        def get_name(self):
+            return self.__name
+
+        def set_age(self, age):
+            self.__age = age
+
+        def get_age(self):
+            return self.__age
+    p = Parent('init', '8')
+    print([p.get_name(), p.get_age()])
+    p.set_name('CHC')
+    print(p.get_name())
+    p.set_age(24)
+    print(p.get_age())
+
+    # 继承
+    class Animal(object):
+        __name = ''     # 私有属性无法继承给子类
+        color = ''
+
+        def __init__(self, name, color):
+            self.__name = name
+            self.color = color
+
+        def set_name(self, name):
+            self.__name = name
+
+        def get_name(self):
+            return self.__name
+
+        def set_color(self, color):
+            self.color = color
+
+        def __get_color(self):      # 私有方法无法继承给子类
+            return self.color
+
+    class Cat(Animal):
+        def __init__(self, name, color):
+            self.name = name
+            self.color = color
+            # 调用父类的构造函数
+            super(Cat, self).__init__(name, color)
+            # Animal.__init__(name, color)
+
+        # 重写父类方法
+        def set_name(self, name):
+            self.name = name
+
+        def get_name(self):
+            return self.name
+    chc = Cat('小猫', '黑色')
+    # 获取父级公开属性
+    print(chc.color)
+    # 调用子类方法重写的方法
+    chc.set_name('大猫')
+    print(chc.get_name())
+
+    # 多继承——一个类同时继承多个父类
+    # 基础类的定义——人
+    class People(object):
+        name = ''
+        age = 0
+        __weight = 0
+
+        def __init__(self, name, age, weight):
+            self.name = name
+            self.age = age
+            self.__weight = weight
+
+        def speak(self):
+            print("%s 说：我 %d 岁。" % (self.name, self.age))
+
+    # 单继承示例
+    # 第一个类的定义——学生
+    class Student(People):
+        grade = 0
+
+        def __init__(self, name, age, weight, grade):
+            People.__init__(self, name, age, weight)        # 调用父类的构造函数
+            self.grade = grade
+
+        # 覆写父类的方法
+        def speak(self):
+            print("%s 说：我 %d 岁，在读 %s 年级。" % (self.name, self.age, self.grade))
+
+    # 第二个类的定义——演讲者
+    class Speaker():
+        topic = ''
+        name = ''
+
+        def __init__(self, topic, name):
+            self.topic = topic
+            self.name = name
+
+        def speak(self):
+            print("我叫 %s ，是一个演讲者，今天演讲的题目是：%s 。" % (self.name, self.topic))
+
+    # 多重继承示例
+    class Sample(Student, Speaker):
+        a = ''      # 不明白这个属性定义的意义，因为没用到，可能只是作者想说明这里可以为Sample定义新的属性
+
+        def __init__(self, name, age, weight, grade, topic):
+            Student.__init__(self, name, age, weight, grade)
+            Speaker.__init__(self, topic, name)
+    test_x = Sample('CHC', 24, 65, 3, 'Piano')
+    test_x.speak()
+
+    # 子类重写方法 & super()调用父类方法
+    class Parent1(object):
+        @staticmethod
+        def my_method():
+            print('调用父类1方法')
+
+    class Parent2(object):
+        @staticmethod
+        def my_method():
+            print('调用父类2方法')
+
+    class Child(Parent1, Parent2):
+        def my_method(self):
+            super(Child, self).my_method()
+            super(Parent1, self).my_method()    # 多继承时，对前一个父类用super()，即可执行后一个父类的同名方法
+            print('调用子类方法')
+    c = Child()
+    c.my_method()
+    super(Child, c).my_method()
+    super(Parent1, c).my_method()
+
+    # 多态——将不同的对象传到相同的函数，表现出不同的形态
+    class Person:
+        def __init__(self, name, age):
+            self.name = name
+            self.age = age
+
+        def print_age(self):
+            print("%s's age is %s" % (self.name, self.age))
+
+    class Man(Person):
+        def print_age(self):
+            print("Mr. %s's age is %s" % (self.name, self.age))
+
+    class Woman(Person):
+        def print_age(self):
+            print("Ms. %s's age is %s" % (self.name, self.age))
+
+    def person_age(person_x):
+        person_x.print_age()
+
+    person = Person('Kiana', 18)
+    man = Man('Kevin', 19)
+    woman = Woman('Mei', 20)
+    person_age(person)
+    person_age(man)
+    person_age(woman)
+
+
+def iter_test():
+    class A:
+        """A 实现了迭代器协议 它的实例就是一个迭代器"""
+
+        def __init__(self, n):
+            self.idx = 0
+            self.n = n
+
+        def __iter__(self):
+            print('__iter__')
+            return self
+
+        def __next__(self):
+            if self.idx < self.n:
+                val = self.idx
+                self.idx += 1
+                return val
+            else:
+                self.idx = 0
+                raise StopIteration()
+
+    # 迭代元素
+    a = A(3)
+    for i in a:
+        print(i)
+    # 再次迭代 没有元素输出 因为迭代器只能迭代一次
+    for i in a:
+        print(i)
+
+
+def gpt_test():
+    proxy = {
+        'http': 'http://localhost:7890',
+        'https': 'http://localhost:7890'
+    }
+    openai.proxy = proxy
+
+    # 填你的秘钥
+    openai.api_key = "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"
+
+    # 提问代码
+    def chat_gpt(prompt):
+        # 你的问题
+        prompt = prompt
+
+        # 调用 ChatGPT 接口
+        model_engine = "text-davinci-003"
+        completion = openai.Completion.create(
+            engine=model_engine,
+            prompt=prompt,
+            max_tokens=1024,
+            n=1,
+            stop=None,
+            temperature=0.5,
+        )
+
+        response = completion.choices[0].text
+        print(response)
+
+    chat_gpt('成都有哪些美食？')
+
 
 if __name__ == '__main__':
     # list2str()
@@ -257,7 +535,11 @@ if __name__ == '__main__':
     # mblogs_weight_statistics()
     # location_correction()
     # time_calc_test()
-    # weight_calc_test()
+    weight_calc_test()
     # save_address_link_to_pgsql()
     # month_calc()
-    get_history_logs()
+    # get_history_logs()
+    # list_derivation()
+    # class_test()
+    # iter_test()
+    # gpt_test()
