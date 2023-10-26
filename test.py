@@ -2,6 +2,7 @@ import app
 from app import pgsql_data_KG, pgsql_data_CHC, pgSQL_conn_has_return, address_judge, address_format, pgSQL_conn_no_return
 from collections import defaultdict
 from itertools import groupby
+from snownlp import SnowNLP
 import matplotlib.pyplot as plt
 import numpy as np
 import math
@@ -527,6 +528,45 @@ def gpt_test():
     chat_gpt('成都有哪些美食？')
 
 
+def snownlp():
+    s = SnowNLP('所谓日复一日必有精进，今天的unravel练习过后也有些许进步，除了没有练习大跑动以外，最让我头疼的地方不是大跳和轮指之类的'
+                '（因为知道可以通过慢速练习一点点提升），而是右手持续“2674 2674 267~”这段小间奏时，'
+                '左手分解八度后继续往右进行的“4~422 2~122”旋律弹起来十分别扭，且双手合奏时根本无法突出主旋律。')
+    # 情感评分
+    print(s.sentiments)
+    # 分词
+    print(s.words)
+    # 词性标注
+    tags = [x for x in s.tags]
+    print(tags)
+    # 断句
+    print(s.sentences)
+    # 拼音
+    print(s.pinyin)
+    # 繁体转简体
+    print(s.han)
+    # 关键字抽取
+    print(s.keywords(limit=10))
+    # 概括总结文章
+    print(s.summary(limit=4))
+
+    s = SnowNLP([
+        ['性格', '善良'],
+        ['温柔', '善良', '善良'],
+        ['温柔', '善良'],
+        ['好人'],
+        ['性格', '善良'],
+    ])
+    # 词频
+    print(s.tf)  # [{'性格': 1, '善良': 1}, {'温柔': 1, '善良': 2}, {'温柔': 1, '善良': 1}, {'好人': 1}, {'性格': 1, '善良': 1}]
+    # 反文档频率
+    print(s.idf)  # {'性格': 0.33647223662121295, '善良': -1.0986122886681098, '温柔': 0.33647223662121295, '好人': 1.0986122886681098}
+    # 文本相似性
+    print(s.sim(['温柔']))  # [0, 0.2746712135683371, 0.33647223662121295, 0, 0]
+    print(s.sim(['善良']))  # [-1.0986122886681098, -1.3521382014376737, -1.0986122886681098, 0, -1.0986122886681098]
+    print(s.sim(['好人']))  # [0, 0, 0, 1.4175642434427222, 0]
+
+
 if __name__ == '__main__':
     # list2str()
     # sweet_flower_chicken()
@@ -535,7 +575,7 @@ if __name__ == '__main__':
     # mblogs_weight_statistics()
     # location_correction()
     # time_calc_test()
-    weight_calc_test()
+    # weight_calc_test()
     # save_address_link_to_pgsql()
     # month_calc()
     # get_history_logs()
@@ -543,3 +583,4 @@ if __name__ == '__main__':
     # class_test()
     # iter_test()
     # gpt_test()
+    snownlp()

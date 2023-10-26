@@ -5,6 +5,7 @@ from gensim.models import LdaModel, CoherenceModel
 from gensim.corpora import Dictionary
 from gensim import corpora, models
 from matplotlib import pyplot as plt
+from snownlp import SnowNLP
 import pyLDAvis.gensim_models
 import pyLDAvis.gensim
 import matplotlib
@@ -135,6 +136,12 @@ def update_topic_to_pgsql():
             pgSQL_conn_no_return(pgsql_data_KG, sql_update_topic)
 
 
+def sentiment_analysis():
+    text = '好难过。'
+    s = SnowNLP(text)
+    print(s.sentiments)
+
+
 if __name__ == '__main__':
     # start = time.time()
     # text_data = get_text()
@@ -144,4 +151,6 @@ if __name__ == '__main__':
     # lda_test(text_data, 8)
     # end = time.time()
     # print('time cost: ', end - start)
-    update_topic_to_pgsql()
+    # update_topic_to_pgsql()
+
+    sentiment_analysis()

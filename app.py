@@ -385,7 +385,7 @@ def get_source_id_by_name(name):
 # 获取位置之间的层级关系，用于知识图谱关系构建——基于预存至数据库的关系
 def get_address_link_from_pgsql(addresses_data):
     target_address_list = list(map(lambda x: x['id'], addresses_data))
-    sql_link = 'select * from addresses_links where target in ' + str(tuple(target_address_list))
+    sql_link = 'select * from addresses_links where target in ' + str(tuple(target_address_list)).replace(',)', ')')
     sql_link_result = pgSQL_conn_has_return(pgsql_data_KG, sql_link)
     addresses_link = list(map(lambda x: {'source': x[0], 'target': x[1], 'relation': x[2]}, sql_link_result))
     source_address_list = list(map(lambda x: x[0], sql_link_result))
