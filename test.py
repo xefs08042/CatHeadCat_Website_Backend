@@ -1,3 +1,5 @@
+import re
+
 import app
 from app import pgsql_data_KG, pgsql_data_CHC, pgSQL_conn_has_return, address_judge, address_format, pgSQL_conn_no_return
 from collections import defaultdict
@@ -6,9 +8,13 @@ from snownlp import SnowNLP
 import matplotlib.pyplot as plt
 import numpy as np
 import math
+import json
 import openai
+import psycopg2
 import pandas as pd
 import time, datetime, calendar
+import urllib.request, urllib.error     # 指定URL，获取网页数据
+from bs4 import BeautifulSoup   # 网页解析，获取数据
 
 
 # 测试列表直接转字符串
@@ -567,6 +573,211 @@ def snownlp():
     print(s.sim(['好人']))  # [0, 0, 0, 1.4175642434427222, 0]
 
 
+def re_test():
+    text = '有没有重名的？<span class=url-icon><img alt=[笑cry] src=https://h5.sinaimg.cn/m/emoticon/icon/default/' \
+           'd_xiaoku-f2bd11b506.png style=width:1em; height:1em; /></span>有吗？<span class=url-icon>' \
+           '<img alt=[允悲] src=https://h5.sinaimg.cn/m/emoticon/icon/default/d_yunbei-a14a649db8.png ' \
+           'style=width:1em; height:1em; /></span>'
+    # emoji_pattern = re.compile('alt=[.*?]')
+    # emoji = emoji_pattern.match(text)
+    emoji_list = re.findall('alt=(.*?) src', text)
+    strip_text_list = re.findall('<span.*?</span>', text)
+    for emoji, strip_text in zip(emoji_list, strip_text_list):
+        print([emoji, strip_text])
+        # text = re.sub('<span class=url-icon><img alt=' + emoji + '.*?</span>', emoji, text)
+        text = text.replace(strip_text, emoji)
+    print(text)
+
+    text = "回复<a href='https://m.weibo.cn/n/Giroud_'>@Giroud_</a>:苏苪"
+    text = re.sub('<a href.*?>', '', text).replace('</a>', '')
+    print(text)
+
+
+head = {    # 模拟浏览器头部信息，向服务器发送消息
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+    "Cookie": "WEIBOCN_FROM=1110006030; _T_WM=36354389022; SCF=AlYpqCLz5hp5I-PQkJxYeELaESEAPfxRv-OHTASt86EYlQfPYp2nKd0C841qoxbYPMtMaupR5f9hlHtTzLX0Alg.; SUB=_2A25IXqjzDeRhGeBI7FAR8SfMyz-IHXVrFaQ7rDV6PUNbktAGLU7EkW1NRmPgTT65KcFbb8TxFe3epLvOvQmMA19B; SUBP=0033WrSXqPxfM725Ws9jqgMF55529P9D9WWo5YdSe4pw8kWNByEwdUDD5JpX5KzhUgL.FoqcS0z7eK.7ehe2dJLoIp7LxKML1KBLBKnLxKqL1hnLBoMcSoMEeh24eh50; SSOLoginState=1700452516; ALF=1703044516; MLOGIN=1; XSRF-TOKEN=fd6214; mweibo_short_token=9a288279d6"
+}           # 用户代理，表示告诉服务器，我们是什么类型的机器/浏览器（本质上是告诉浏览器，我们可以接收什么水平的文件内容）
+pgsql_data = {
+    "database": "doksuri_weibo_data",
+    "user": "postgres",
+    "password": "26081521aabf",
+    "host": "localhost",
+    "port": "5432"
+}
+
+
+# 有返回的数据库操作，以查询语句为例
+def pgSQL_conn_has_return(sql):
+    conn = psycopg2.connect(
+        database=pgsql_data["database"],
+        user=pgsql_data["user"],
+        password=pgsql_data["password"],
+        host=pgsql_data["host"],
+        port=pgsql_data["port"]
+    )
+    cur = conn.cursor()
+    cur.execute(sql)
+    cols = cur.fetchall()
+    conn.commit()
+    conn.close()
+    return cols
+
+
+# 无返回的数据库操作，以增删改语句为例
+def pgSQL_conn_no_return(sql):
+    conn = psycopg2.connect(
+        database=pgsql_data["database"],
+        user=pgsql_data["user"],
+        password=pgsql_data["password"],
+        host=pgsql_data["host"],
+        port=pgsql_data["port"]
+    )
+    cur = conn.cursor()
+    cur.execute(sql)
+    conn.commit()
+    conn.close()
+
+
+# pgsql插入语句生成
+def generate_insert_sql(table_name, type_list, key_list, value_list):
+    for i in range(len(type_list)):
+        if type_list[i] == 'str':
+            value_list[i] = "'" + value_list[i] + "'"
+    keys_str = "(" + ', '.join(key_list) + ")"
+    values_str = "(" + ', '.join(value_list) + ")"
+    sql = "insert into " + table_name + " " + keys_str + " values " + values_str
+    # print(sql)
+    return sql
+
+
+# 得到指定一个URL的网页内容
+def ask_url(url):
+    url = urllib.request.quote(url, safe=";/?:@&=+$,", encoding="utf-8")
+    print(url)
+    request = urllib.request.Request(url, headers=head)
+    html = ""
+    try:
+        response = urllib.request.urlopen(request)
+        html = response.read().decode("utf-8")
+        # print(html)
+    except urllib.error.URLError as e:
+        if hasattr(e, "code"):
+            print(e.code)
+        if hasattr(e, "reason"):
+            print(e.reason)
+    except Exception as e:
+        print(e, "登录认证失败")
+    return html
+
+
+# 通过ajax接口跳转至该用户的信息页，获取其注册时填写的所在城市信息
+# url -> https://weibo.com/ajax/profile/info?custom={uid}
+def turn_to_user_page(url):
+    html = ask_url(url)
+    content = BeautifulSoup(html, 'html.parser')
+    user_info = json.loads(content.text)['data']['user']
+    user_id = user_info['idstr']
+    user_nickname = user_info['screen_name']
+    user_gender = user_info['gender']
+    user_location = user_info['location']
+    user_verified_type = str(user_info['verified_type'])
+    user_followers_count = str(user_info['followers_count'])
+    user_friends_count = str(user_info['friends_count'])
+    user_statuses_count = str(user_info['statuses_count'])
+    return [user_id, user_nickname, user_gender, user_location, user_verified_type,
+            user_followers_count, user_friends_count, user_statuses_count]
+
+
+# 获取所有杜苏芮微博的转发数据
+def get_repost_all(offset, limit):
+    sql = 'select mid from mblogs_data order by time_info offset {offset} limit {limit}'.format(offset=offset, limit=limit)
+    mids = list(map(lambda x: x[0], pgSQL_conn_has_return(sql)))
+    for i, mid in enumerate(mids):
+        print('===============================================')
+        print('正在爬取第 {num} 条微博的转发'.format(num=i+1+offset))
+        print('===============================================')
+        try:
+            get_repost_mblog(mid)
+        except json.decoder.JSONDecodeError as e:
+            print('Error 500, 操作过于频繁，请稍后重试')
+            time.sleep(60)
+            get_repost_mblog(mid)
+        time.sleep(3)
+
+
+# 获取某条微博的转发数据
+def get_repost_mblog(origin_mid):
+    repost_base_url = 'https://m.weibo.cn/api/statuses/repostTimeline?id={mid}&page={page}'
+    sql_insert_list = []
+    sql_user_list = []
+    iter_num = 1
+    while True:
+        repost_url = repost_base_url.format(mid=origin_mid, page=iter_num)
+        html = ask_url(repost_url)
+        reposts = json.loads(html)
+        if reposts['ok'] != 1:
+            break
+        print([iter_num, reposts['ok']])
+        reposts_list = reposts['data']['data']
+        for rpt in reposts_list:
+            rpt['created_at'] = datetime.datetime.strptime(rpt['created_at'], "%a %b %d %H:%M:%S +0800 %Y").strftime('%Y-%m-%d %H:%M:%S')
+            try:
+                rpt['region_name'] = rpt['region_name'].strip('发布于 ')
+            except KeyError as e:
+                rpt['region_name'] = 'unknown'
+            rpt['raw_text'] = emoji_clean(rpt['raw_text'])
+            keys = '(mid, mblog_id, user_id, origin_mid, time_info, location_info, text, reposts_count, comments_count, attitudes_count)'
+            values = (
+                rpt['mid'], rpt['bid'], rpt['user']['id'], origin_mid, rpt['created_at'], rpt['region_name'],
+                rpt['raw_text'], rpt['reposts_count'], rpt['comments_count'], rpt['attitudes_count']
+            )
+            sql_insert = 'insert into reposts_data ' + keys + ' values ' + str(values)
+            sql_insert_list.append(sql_insert.replace('"', '').replace('None', 'False'))
+
+            user_info_url = 'https://weibo.com/ajax/profile/info?custom={uid}'.format(uid=rpt['user']['id'])
+            table_name = 'users_data_repost'
+            type_list = ['int', 'str', 'str', 'str', 'int', 'int', 'int', 'int']
+            key_list = ['user_id', 'user_nickname', 'user_gender', 'user_location', 'user_verified_type',
+                        'user_followers_count', 'user_friends_count', 'user_statuses_count']
+            try:
+                user_info = turn_to_user_page(user_info_url)
+                value_list = list(map(lambda x: str(x), user_info))
+            except json.decoder.JSONDecodeError as e:
+                print('Error 404! 当前用户不存在')
+                value_list = [str(rpt['user']['id']), 'unknown', 'u', '其他', '-1', '0', '0', '0']
+            sql_user = generate_insert_sql(table_name, type_list, key_list, value_list)
+            sql_user_list.append(sql_user)
+        iter_num += 1
+    for i, (sql_i, sql_u) in enumerate(zip(sql_insert_list, sql_user_list)):
+        print(sql_i)
+        print(sql_u)
+        try:
+            pgSQL_conn_no_return(sql_i)
+        except psycopg2.errors.UniqueViolation as e:
+            print('Tip 1: 该转发已存在')
+        try:
+            pgSQL_conn_no_return(sql_u)
+        except psycopg2.errors.UniqueViolation as e:
+            print('Tip 2: 该用户已存在')
+        print('已插入{num}条数据'.format(num=i + 1))
+    print('finish')
+
+
+# 将微博文本中用于表示表情的标记语言简化为 [emoji] 的形式：
+def emoji_clean(text):
+    emoji_list = re.findall('alt=(.*?) src', text)
+    strip_text_list = re.findall('<span.*?</span>', text)
+    for emoji, strip_text in zip(emoji_list, strip_text_list):
+        text = text.replace(strip_text, emoji)
+    # 去除回复用户的a标签
+    text = re.sub('<a href.*?>', '', text).replace('</a>', '')
+    # 去除超话类的a标签
+    text = re.sub('<a class.*?>', '', text)
+    # 去除单引号
+    text = text.replace("\'", '，')
+    return text
+
+
 if __name__ == '__main__':
     # list2str()
     # sweet_flower_chicken()
@@ -583,4 +794,10 @@ if __name__ == '__main__':
     # class_test()
     # iter_test()
     # gpt_test()
-    snownlp()
+    # snownlp()
+    # re_test()
+
+    offset = 55762
+    limit = 100000
+    get_repost_all(offset, limit)
+    # get_repost_mblog('4925367645901638')

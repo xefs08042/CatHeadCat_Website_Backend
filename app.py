@@ -9,18 +9,29 @@ import requests
 import psycopg2
 import pandas as pd
 
+import global_var
+import global_var as gvar
+
 from datetime import date
 from collections import defaultdict
-from flask import Flask, request, send_from_directory
+from flask import Flask, request, send_from_directory, Response, stream_with_context
 from flask_restful import Api, Resource
 from flask_cors import CORS
 from urllib.parse import urljoin
+from crawler import get_mblog
 # from sklearn.preprocessing import StandardScaler
 
 app = Flask(__name__)
 api = Api(app)
 CORS(app, resources=r"/*")
-
+# 允许的扩展名
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp'}
+# 1M
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
+UPLOAD_FOLDER = 'uploads'
+if not os.path.isdir(UPLOAD_FOLDER):
+    os.mkdir(UPLOAD_FOLDER)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 ######################
 # 配置参数
@@ -41,18 +52,9 @@ pgsql_data_KG = {
     "host": "localhost",
     "port": "5432"
 }
+# 初始化全局变量
+gvar._init()
 ######################
-UPLOAD_FOLDER = 'uploads'
-if not os.path.isdir(UPLOAD_FOLDER):
-    os.mkdir(UPLOAD_FOLDER)
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# 允许的扩展名
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp'}
-
-# 1M
-app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
 
 
 # 数据库连接
@@ -460,7 +462,7 @@ def get_mblog_user_node(sql_result):
                   'location_correction', 'mblog_topic_class']
     user_keys = ['user_id', 'user_nickname', 'user_gender', 'user_location', 'user_verified_type',
                  'user_followers_count', 'user_friends_count', 'user_statuses_count', 'user_weight']
-    # sql = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id ' \
+    # sql = 'select * from mblogs_data, only users_data where mblogs_data.user_id = users_data.user_id ' \
     #       "and mblogs_data.location_correction != '' limit 500"
     # data = pgSQL_conn_has_return(pgsql_data_KG, sql)
     data = sql_result
@@ -490,6 +492,7 @@ def get_mblog_user_node(sql_result):
     users_data = [dict(d) for d in (set([tuple(d.items()) for d in users_data]))]
     links_u2m = list(map(lambda x: x['link_u2m'], result))
     links_m2a = list(map(lambda x: x['link_m2a'], result))
+    print([len(mblogs_data), len(users_data), len(links_u2m), len(links_m2a)])
     return [mblogs_data, users_data, links_u2m, links_m2a]
 
     # print(sql)
@@ -505,7 +508,7 @@ def get_mblog_user_node(sql_result):
     # for mblog_values in mblogs_values:
     #     uid = mblog_values[2]
     #     address = mblog_values[-1]
-    #     sql_user = 'select * from users_data where user_id=' + str(uid)
+    #     sql_user = 'select * from only users_data where user_id=' + str(uid)
     #     user_values = pgSQL_conn_has_return(pgsql_data_KG, sql_user)[0]
     #     # mblog_loc = address_format(mblog_values[5])
     #     # user_loc = address_format(user_values[3])
@@ -543,7 +546,7 @@ def count_num_by_time_range(start, end, mids, status=0):
     num = pgSQL_conn_has_return(pgsql_data_KG, sql)[0][0]
     print([start_str, end_str, num])
     if status == 1:
-        sql = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id and ' \
+        sql = 'select * from mblogs_data, only users_data where mblogs_data.user_id = users_data.user_id and ' \
               'mblogs_data.mid in ' + mids + ' and ' + ts + ' >= ' + start_str + ' and ' + ts + ' < ' + end_str
         return {'num': num, 'sql': sql}
     else:
@@ -642,7 +645,7 @@ class GetKGData(Resource):
         mids_loc = str(tuple(list(map(lambda x: int(x), mids_loc.split(',')))))
         if sum(mblog_count_by_day) <= mblog_node_limit:
             status = 'case 1: loc in limit'
-            sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id and ' \
+            sql_mblog_1 = 'select * from mblogs_data, only users_data where mblogs_data.user_id = users_data.user_id and ' \
                           'mblogs_data.mid in ' + mids_loc  # 查询时长80ms左右
             sql_result = pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_1)
         else:
@@ -651,7 +654,7 @@ class GetKGData(Resource):
             if max(mblog_count_by_day) <= mblog_node_limit:
                 if max(mblog_count_by_day) in pd.Interval(limit_l, limit_r):
                     status = 'case 2: loc out limit, time in limit'
-                    sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id' \
+                    sql_mblog_1 = 'select * from mblogs_data, only users_data where mblogs_data.user_id = users_data.user_id' \
                                   ' and mblogs_data.mid in ' + mids_time
                 else:
                     # 从最高日起算，判断num是否位于限值区间，向两侧扩展直至符合要求
@@ -664,7 +667,7 @@ class GetKGData(Resource):
                 # 按照博客及用户权重倒序查询
                 # sql_num = 'select count(*) from mblogs_data where mid in ' + mids_time + ' and mblog_weight > 0.0001'
                 sql_weight = "select count(*), string_agg(mblogs_data.mid::character varying, ',')" \
-                          ' from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id' \
+                          ' from mblogs_data, only users_data where mblogs_data.user_id = users_data.user_id' \
                           ' and mblogs_data.mid in ' + mids_time + ' and mblog_weight + user_weight > 0.02'
                 sql_weight_result = pgSQL_conn_has_return(pgsql_data_KG, sql_weight)
                 [num_weight, mids_weight] = [sql_weight_result[0][0], sql_weight_result[0][1]]
@@ -673,11 +676,11 @@ class GetKGData(Resource):
                 if num_weight < mblog_node_limit:
                     if num_weight in pd.Interval(limit_l, limit_r):
                         status = 'case 3: loc out limit, time out limit, weight in limit'
-                        sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id' \
+                        sql_mblog_1 = 'select * from mblogs_data, only users_data where mblogs_data.user_id = users_data.user_id' \
                                       ' and mblogs_data.mid in ' + mids_weight  # 查询时长80ms左右
                     else:
                         status = 'case 3: loc out limit, time out limit, weight in limit but plummet'
-                        sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id' \
+                        sql_mblog_1 = 'select * from mblogs_data, only users_data where mblogs_data.user_id = users_data.user_id' \
                                       ' and mblogs_data.mid in ' + mids_time + ' order by mblog_weight + user_weight' \
                                       ' desc limit ' + str(random.randint(limit_l, limit_r))
                     sql_result = pgSQL_conn_has_return(pgsql_data_KG, sql_mblog_1)
@@ -690,7 +693,7 @@ class GetKGData(Resource):
                     topic_count_all = sum(list(map(lambda x: x[0], topic_result)))
                     sql_result = []
                     for item in topic_result:
-                        sql_mblog_1 = 'select * from mblogs_data, users_data where mblogs_data.user_id = users_data.user_id' \
+                        sql_mblog_1 = 'select * from mblogs_data, only users_data where mblogs_data.user_id = users_data.user_id' \
                                       ' and mblogs_data.mid in ' + mids_weight + ' and mblogs_data.mblog_topic_class = ' \
                                       + str(item[1]) + ' order by length(mblogs_data.mblog_text) desc ' + ' limit ' + \
                                       str(int(item[0]/topic_count_all*mblog_node_limit))
@@ -698,6 +701,7 @@ class GetKGData(Resource):
                         sql_result += item_data
         print('status: ', status)
         print('final_mblog_num: ', len(sql_result))
+        print(sql_mblog_1)
         [mblog_nodes, user_nodes, links_u2m, links_m2a] = get_mblog_user_node(sql_result)
         nodes = address_nodes + mblog_nodes + user_nodes
         links = links_u2m + links_m2a + links_a
@@ -722,6 +726,70 @@ class GetKGData(Resource):
         }
 
 
+# 以数据流的形式向前端返回数据爬虫的进度条
+class ReturnCrawlerProgress(Resource):
+    def get(self):
+        # 供前端访问进度条
+        def get_bar_ratio():
+            # global mblog_crawler_progress_ratio
+            return gvar.get_value('mblog_crawler_progress_ratio')
+
+        # @stream_with_context
+        # def generate():
+        #     # global ratio
+        #     ratio = get_bar_ratio()  # 获取后端进度条数据，最初的时候是0
+        #
+        #     while ratio < 100:  # 循环获取，直到达到100%
+        #         yield "data:" + str(ratio) + "\n\n"
+        #         print("ratio:", ratio)
+        #         ratio = get_bar_ratio()
+        #         # 最好设置睡眠时间，不然后端在处理一帧的过程中前端就访问了好多次
+        #         time.sleep(1)
+        #     yield "data:" + str(ratio) + "\n\n"
+        #     print("ratio:", ratio)
+
+        @stream_with_context
+        def generate_json_data():
+            # global ratio
+            ratio = get_bar_ratio()  # 获取后端进度条数据，最初的时候是0
+
+            while ratio < 100:  # 循环获取，直到达到100%
+                json_data = global_var.get_json()
+                yield f"data: {json.dumps(json_data)} \n\n"
+                print("ratio:", ratio)
+                ratio = get_bar_ratio()
+                # 最好设置睡眠时间，不然后端在处理一帧的过程中前端就访问了好多次
+                time.sleep(1)
+            yield f"data: {json.dumps(json_data)} \n\n"
+            print("ratio:", ratio)
+
+        return Response(generate_json_data(), mimetype='text/event-stream')  # 用数据流的方式发送给后端
+
+
+class MblogCrawler(Resource):
+    def post(self):
+        def time_format_trans(utc_time):
+            utc_time = datetime.datetime.strptime(utc_time, "%Y-%m-%dT%H:%M:%S.%f%z")
+            bj_time = utc_time + datetime.timedelta(hours=8)
+            bj_time = datetime.datetime.strftime(bj_time, "%Y-%m-%d-%H")
+            return bj_time
+        def generate_path(start_time, end_time, storage_name):
+            base_path = 'spider_data/' + storage_name
+            file_name = 'mblogtxt_' + storage_name + '_' + start_time.replace('-', '') + '_' + end_time.replace('-', '') + '.csv'
+            path_mblogs = base_path + '/mblogs_data/' + file_name
+            path_users = base_path + '/users_data/' + file_name
+            path = [path_mblogs, path_users]
+            return path
+
+        gvar._init()
+        data = request.get_json()
+        data['time'] = list(map(lambda x: time_format_trans(x), data['time']))
+        path = generate_path(data['time'][0], data['time'][1], data['storage_name'])
+        get_mblog(data['time'][0], data['time'][1], data['keyword'], path)
+        gvar.set_value('mblog_crawler_progress_ratio', 100)
+        return {'status': 'success'}
+
+
 api.add_resource(Login, '/login/')
 api.add_resource(AcceptPicture, '/upload/picture/')
 api.add_resource(SendPicture, '/uploads/<path:filename>')
@@ -730,6 +798,8 @@ api.add_resource(UpdateSpending, '/upload/spending_info/')
 api.add_resource(GetHistoryData, '/get_history_data/')
 api.add_resource(getHistoryAccount, '/get_history_account/')
 api.add_resource(GetKGData, '/get_KG_data/')
+api.add_resource(ReturnCrawlerProgress, '/rtn_crawler_pgs/')
+api.add_resource(MblogCrawler, '/mblog_crawler/')
 
 
 if __name__ == '__main__':
